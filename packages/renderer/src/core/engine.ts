@@ -24,7 +24,7 @@ import type { TextLayout } from '../lib/textLayout.ts';
 import { applyShaperPositions, computeLayoutBbox, computeTextLayout } from '../lib/textLayout.ts';
 import type { Timeline, TimelineConfig, TimelineEntry } from '../lib/timeline.ts';
 import { computeTimeline } from '../lib/timeline.ts';
-import { cssFontFamily, graphemes } from '../lib/utils.ts';
+import { cssFontFamily, graphemes, lookupGlyphData } from '../lib/utils.ts';
 import type { TegakiBundle, TegakiGlyphData } from '../types.ts';
 import { getBundle, registerBundle, resolveBundle } from './bundle-registry.ts';
 import { buildChildren, buildRootProps, domCreateElement } from './render-elements.ts';
@@ -86,6 +86,7 @@ export class TegakiEngine {
   private _quality: TegakiQuality | undefined;
   private _showOverlay = false;
   private _onComplete: (() => void) | undefined;
+  private _onChangeTimeline: ((timeline: Timeline) => void) | undefined;
   private _direction: 'ltr' | 'rtl' | undefined;
 
   // --- Derived / cached ---
@@ -224,6 +225,31 @@ export class TegakiEngine {
     return this._timeline.totalDuration;
   }
 
+  /**
+   * The engine's current timeline — the same object that drives rendering.
+   * Reflects the resolved shaper once the (async) shaper promise has
+   * settled; use the `onChangeTimeline` option to be notified of recomputations.
+   * Treat the returned object as read-only.
+   */
+  get timeline(): Timeline {
+    return this._timeline;
+  }
+
+  /**
+   * Compute a timeline for arbitrary text against this engine's currently-
+   * loaded font, timing config, and resolved shaper. Useful for measuring
+   * the duration of hypothetical text without changing what's rendered
+   * (e.g. layout planning, fade-in scheduling).
+   *
+   * Returns an empty timeline when no font is loaded. The result reflects
+   * shaper state at call time — call after `onChangeTimeline` has fired
+   * once to be sure the shaper has resolved.
+   */
+  computeTimeline(text: string): Timeline {
+    if (!this._font) return { entries: [], totalDuration: 0 };
+    return computeTimeline(text, this._font, this._timing, this._shaper);
+  }
+
   get isPlaying(): boolean {
     return this._playing;
   }
@@ -285,7 +311,14 @@ export class TegakiEngine {
     let dirtyPlayback = false;
 
     if ('text' in options) {
-      const nextText = (options.text ?? '').replace(/\r\n?/g, '\n');
+      // NFC normalize so input form (NFC vs NFD) doesn't change which bundle
+      // key resolves: bundles are built with NFC keys, and HarfBuzz / the
+      // browser overlay normalize internally, so without this the canvas
+      // shapes correctly but `glyphData[char]` lookups (timeline, advance
+      // widths, DOM-fillText fallback) miss for NFD input — e.g. `"é"` typed
+      // as `e` + U+0301 would resolve to bare `e` via the leading-codepoint
+      // fallback even though the bundle has the right precomposed glyph.
+      const nextText = (options.text ?? '').replace(/\r\n?/g, '\n').normalize('NFC');
       if (nextText !== this._text) {
         this._text = nextText;
         dirtyTimeline = true;
@@ -387,6 +420,10 @@ export class TegakiEngine {
 
     if ('onComplete' in options) {
       this._onComplete = options.onComplete;
+    }
+
+    if ('onChangeTimeline' in options) {
+      this._onChangeTimeline = options.onChangeTimeline;
     }
 
     // --- Recompute ---
@@ -645,6 +682,7 @@ export class TegakiEngine {
     } else {
       this._timeline = { entries: [] as TimelineEntry[], totalDuration: 0 };
     }
+    this._onChangeTimeline?.(this._timeline);
   }
 
   private _recomputeLayout(): void {
@@ -950,7 +988,7 @@ export class TegakiEngine {
         entry.xOffsetEm !== undefined && lineLeftEm !== undefined
           ? (lineLeftEm + entry.xOffsetEm) * fontSize
           : (layout.charOffsets[charIdx] ?? 0) * fontSize;
-      const glyph = (entry.glyphId !== undefined ? font.glyphDataById?.[entry.glyphId] : undefined) ?? font.glyphData[entry.char];
+      const glyph = (entry.glyphId !== undefined ? font.glyphDataById?.[entry.glyphId] : undefined) ?? lookupGlyphData(font, entry.char);
 
       if (glyph && entry.hasGlyph) {
         let localTime = Math.max(0, Math.min(currentTime - entry.offset, entry.duration));

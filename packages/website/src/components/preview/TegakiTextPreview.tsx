@@ -1,7 +1,7 @@
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
+import type { Font } from 'opentype.js';
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BUNDLE_VERSION,
-  computeTimeline,
   type TegakiBundle,
   type TegakiEffects,
   TegakiEngine,
@@ -10,6 +10,7 @@ import {
   TegakiRenderer,
   type TegakiRendererHandle,
   type TimeControlProp,
+  type Timeline,
   type TimelineConfig,
 } from 'tegaki';
 import harfbuzzShaper from 'tegaki/shaper-harfbuzz';
@@ -182,6 +183,12 @@ export const TegakiTextPreview = forwardRef<TegakiRendererHandle, TegakiTextPrev
   const internalCacheRef = useRef<Map<string, PipelineResult>>(new Map());
   const activeCache = resultsCache?.current ?? internalCacheRef.current;
 
+  // NFC normalize once. The engine NFC-normalizes its own `text` prop, so the
+  // bundle we build here must use the same form for both `glyphData` keys
+  // (single-codepoint) and the shaped text (variant collection) — otherwise
+  // the engine would look up NFC keys against an NFD-keyed bundle and miss.
+  const normalizedText = useMemo(() => text.normalize('NFC'), [text]);
+
   // Variant glyphs the shapers produce for the current text, keyed the same
   // way the renderer looks them up: bare `"<gid>"` for primary-subset glyphs,
   // `"<subsetIdx>:<gid>"` for extras. Populated asynchronously because
@@ -203,7 +210,7 @@ export const TegakiTextPreview = forwardRef<TegakiRendererHandle, TegakiTextPrev
         const optionsKey = JSON.stringify(options);
         const variants: Record<string, TegakiGlyphData> = {};
         const seen = new Set<string>();
-        for (const line of text.split('\n')) {
+        for (const line of normalizedText.split('\n')) {
           // Split each line into per-subset runs so shaping never crosses a
           // subset boundary — same routing rule the renderer's `BundleShaper`
           // uses. For each cluster char, pick the first subset whose cmap
@@ -212,7 +219,6 @@ export const TegakiTextPreview = forwardRef<TegakiRendererHandle, TegakiTextPrev
           const runs = splitByCoverage(line, fonts);
           for (const { subsetIdx, start, end } of runs) {
             const shaper = shapers[subsetIdx]!;
-            const font = fonts[subsetIdx]!;
             const runText = line.slice(start, end);
             for (const g of shaper.shape(runText)) {
               if (g.g === 0) continue;
@@ -222,8 +228,16 @@ export const TegakiTextPreview = forwardRef<TegakiRendererHandle, TegakiTextPrev
               seen.add(variantKey);
               const clusterChar = runText[g.cl];
               if (!clusterChar) continue;
-              const nominal = font.charToGlyph(clusterChar).index;
-              if (g.g === nominal) continue;
+              // Process every glyph the shaper emits, including nominal forms
+              // (where g.g === font.charToGlyph(clusterChar).index). For Latin
+              // clusters the nominal glyph is also reachable via glyphData[char],
+              // but for multi-codepoint clusters (Devanagari "हि", "स्ते", etc.)
+              // entry.char is the whole grapheme so the char-keyed fallback
+              // can't find a nominal glyph that landed on a codepoint past
+              // index 0. Storing the variant unconditionally makes
+              // glyphDataById self-contained for every shaped glyph and
+              // removes the renderer's reliance on the codepoint-fallback
+              // path.
               const rtl = isRtlChar(clusterChar);
               const cacheKey = `#${subsetIdx}:${g.g}:${rtl ? 'r' : 'l'}:${optionsKey}`;
               let res = activeCache.get(cacheKey);
@@ -249,14 +263,14 @@ export const TegakiTextPreview = forwardRef<TegakiRendererHandle, TegakiTextPrev
     return () => {
       cancelled = true;
     };
-  }, [fontBuffer, extraFontBuffers, fontInfo, text, options, enabledFeatures, activeCache, useShaper]);
+  }, [fontBuffer, extraFontBuffers, fontInfo, normalizedText, options, enabledFeatures, activeCache, useShaper]);
 
   const fontBundle = useMemo<TegakiBundle>(() => {
     const glyphData: TegakiBundle['glyphData'] = {};
     const optionsKey = JSON.stringify(options);
 
     const seen = new Set<string>();
-    for (const char of text) {
+    for (const char of normalizedText) {
       if (seen.has(char) || char === ' ' || char === '\n') continue;
       seen.add(char);
 
@@ -291,13 +305,25 @@ export const TegakiTextPreview = forwardRef<TegakiRendererHandle, TegakiTextPrev
       ...(hasVariants ? { glyphDataById: variantData } : {}),
       ...(enabledFeatures.length > 0 ? { features: enabledFeatures } : {}),
     } satisfies TegakiBundle;
-  }, [fontInfo, fontUrl, extraFontUrls, text, options, activeCache, enabledFeatures, variantData]);
+  }, [fontInfo, fontUrl, extraFontUrls, normalizedText, options, activeCache, enabledFeatures, variantData]);
 
-  useEffect(() => {
-    if (!onReady || !fontReady) return;
-    const totalDuration = computeTimeline(text, fontBundle).totalDuration;
-    onReady({ bundle: fontBundle, totalDuration });
-  }, [onReady, fontReady, fontBundle, text]);
+  // Latest bundle, captured by ref so the stable `handleTimelineChange`
+  // callback can read it without re-subscribing the engine. Without this,
+  // every change to `fontBundle` would force the engine option to re-bind.
+  const bundleRef = useRef(fontBundle);
+  bundleRef.current = fontBundle;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+
+  // Drive `onReady` from the engine's first-class onChangeTimeline callback
+  // rather than re-running computeTimeline here. The duplicate computation
+  // got the unshapped totalDuration: clusters that the harfbuzz shaper
+  // collapses to a single half-form glyph (e.g. Devanagari "द्") fell
+  // through to the bare consonant's duration, so the host clock stopped
+  // before the engine's last stroke had drawn.
+  const handleTimelineChange = useCallback((timeline: Timeline) => {
+    onReadyRef.current?.({ bundle: bundleRef.current, totalDuration: timeline.totalDuration });
+  }, []);
 
   if (!fontReady) return null;
 
@@ -314,6 +340,7 @@ export const TegakiTextPreview = forwardRef<TegakiRendererHandle, TegakiTextPrev
       quality={quality}
       timing={timing}
       shaper={useShaper}
+      onChangeTimeline={handleTimelineChange}
     />
   );
 });
@@ -331,7 +358,7 @@ interface SubsetRun {
  * Primary-first coverage check (so shared glyphs like digits stick with the
  * Latin primary) matches the renderer's `BundleShaper` routing.
  */
-function splitByCoverage(line: string, fonts: import('opentype.js').Font[]): SubsetRun[] {
+function splitByCoverage(line: string, fonts: Font[]): SubsetRun[] {
   const runs: SubsetRun[] = [];
   let runStart = 0;
   let runSubset = -1;

@@ -20,7 +20,7 @@ import {
   VORONOI_SAMPLING_INTERVAL,
 } from '../constants.ts';
 import { enumerateVariantGlyphIds } from '../font/enumerate-variants.ts';
-import { createHbShaper, getGsubFeatures } from '../font/hb-shaper.ts';
+import { getGsubFeatures } from '../font/hb-shaper.ts';
 import { extractGlyph, extractGlyphById, inferLineCap } from '../font/parse.ts';
 import { computePathBBox, flattenPath } from '../processing/bezier.ts';
 import { toFontUnits } from '../processing/font-units.ts';
@@ -369,7 +369,13 @@ export async function extractTegakiBundle(input: ExtractBundleInput): Promise<Te
     glyphs: {},
   };
 
-  const chars = [...charsStr];
+  // NFC normalize before splitting into code points so bundle keys are in a
+  // canonical form. Without this, a charset typed as `"é"` (NFD: e + U+0301)
+  // would split into two separate base+combining entries instead of one
+  // precomposed glyph, and the renderer's char-keyed lookups (which also NFC
+  // normalize incoming text) would miss the bundle even when the right glyph
+  // is reachable.
+  const chars = [...charsStr.normalize('NFC')];
   let processed = 0;
   let skipped = 0;
   const glyphResults: Record<string, PipelineResult> = {};
@@ -425,21 +431,16 @@ export async function extractTegakiBundle(input: ExtractBundleInput): Promise<Te
   const bundleFeatures = fontInfo.features.filter((f) => !options.disabledFeatures.includes(f));
   if (bundleFeatures.length > 0) {
     onProgress?.(`Discovering ligature/alternate glyphs...`);
-    const shaper = await createHbShaper(fontBuffer, bundleFeatures);
-    try {
-      const variantIds = enumerateVariantGlyphIds(shaper, chars);
-      const total = variantIds.size;
-      let i = 0;
-      for (const { gid, clusterChar } of variantIds.values()) {
-        const result = processGlyphById(fontInfo, gid, options, 0, isRtlChar(clusterChar));
-        i++;
-        if (!result) continue;
-        glyphResultsById[String(gid)] = result;
-        variantCompact[String(gid)] = toCompactGlyph(result);
-        onProgress?.(`Processing variant glyph #${gid}`, total === 0 ? undefined : i / total);
-      }
-    } finally {
-      shaper.destroy();
+    const variantIds = enumerateVariantGlyphIds(fontInfo.font, chars);
+    const total = variantIds.size;
+    let i = 0;
+    for (const { gid, clusterChar } of variantIds.values()) {
+      const result = processGlyphById(fontInfo, gid, options, 0, isRtlChar(clusterChar));
+      i++;
+      if (!result) continue;
+      glyphResultsById[String(gid)] = result;
+      variantCompact[String(gid)] = toCompactGlyph(result);
+      onProgress?.(`Processing variant glyph #${gid}`, total === 0 ? undefined : i / total);
     }
   }
 

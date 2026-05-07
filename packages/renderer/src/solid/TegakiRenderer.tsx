@@ -61,6 +61,7 @@ export function TegakiRenderer(props: TegakiRendererProps) {
     'timing',
     'showOverlay',
     'direction',
+    'shaper',
     'ref',
   ]);
 
@@ -76,6 +77,7 @@ export function TegakiRenderer(props: TegakiRendererProps) {
     timing: local.timing,
     showOverlay: local.showOverlay,
     direction: local.direction,
+    shaper: local.shaper,
     onComplete: local.onComplete,
   }));
 
@@ -101,5 +103,5 @@ export function TegakiRenderer(props: TegakiRendererProps) {
 
   const mergedStyle = { ...rootProps.style, ...(typeof divProps.style === 'object' ? divProps.style : {}) };
 
-  return <div ref={container!} data-tegaki="root" {...divProps} style={mergedStyle} innerHTML={innerHTML} />;
+  return <div ref={container!} data-tegaki="root" dir="auto" {...divProps} style={mergedStyle} innerHTML={innerHTML} />;
 }

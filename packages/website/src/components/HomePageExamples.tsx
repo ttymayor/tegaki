@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { type TegakiBundle, TegakiRenderer } from 'tegaki';
+import { TegakiEngine } from 'tegaki/core';
+import harfbuzzShaper from 'tegaki/shaper-harfbuzz';
 import { StaticChatDemo } from './StaticChatDemo.tsx';
+
+// Register the harfbuzz shaper once at module load — required for fonts that
+// rely on contextual/positional shaping (Amiri's Arabic init/medi/fina/isol,
+// Caveat's `calt` chains, etc.). Without it, those bundles render the nominal
+// glyphs and never reach the variant glyph data shipped with the bundle.
+TegakiEngine.registerShaper(harfbuzzShaper);
 
 type BundleEntry = { name: string; bundle: TegakiBundle | null };
 
@@ -9,14 +17,26 @@ const FONT_IMPORTS = {
   Italianno: () => import('tegaki/fonts/italianno'),
   Tangerine: () => import('tegaki/fonts/tangerine'),
   Parisienne: () => import('tegaki/fonts/parisienne'),
+  'Suez One': () => import('tegaki/fonts/suez-one'),
+  Amiri: () => import('tegaki/fonts/amiri'),
+  'Klee One': () => import('tegaki/fonts/klee-one'),
 } as const;
 
 const FONT_NAMES = Object.keys(FONT_IMPORTS) as (keyof typeof FONT_IMPORTS)[];
 
 const HERO_TEXT = 'Hello, World!';
-const SHOWCASE_TEXT = 'The quick brown fox';
+const DEFAULT_SHOWCASE_TEXT = 'The quick brown fox';
+/** Per-font showcase text — non-Latin bundles render their script's sample. */
+const SHOWCASE_TEXTS: Partial<Record<keyof typeof FONT_IMPORTS, string>> = {
+  'Suez One': 'כתב היד מדהים',
+  Amiri: 'الكتابة اليدوية رائعة',
+  // Klee One ships only Kyōiku grade 1–2 kanji, so the standard "手書きは
+  // 素晴らしい" doesn't work — `素` is grade 5. `楽` ("fun") is grade 2 and
+  // gives a phrase that's just as natural to a Japanese reader.
+  'Klee One': '手書きは楽しい',
+};
 
-function FontCard({ name, bundle }: { name: string; bundle: TegakiBundle | null }) {
+function FontCard({ name, bundle, text }: { name: string; bundle: TegakiBundle | null; text: string }) {
   return (
     <div style={{ marginTop: 0 }}>
       <div style={{ marginBottom: 8, fontSize: 14, fontWeight: 500, color: 'light-dark(#6b7280, #9ca3af)', letterSpacing: '0.05em' }}>
@@ -34,7 +54,7 @@ function FontCard({ name, bundle }: { name: string; bundle: TegakiBundle | null 
       >
         {bundle ? (
           <TegakiRenderer font={bundle} time={{ mode: 'uncontrolled', speed: 1, loop: true }} style={{ fontSize: 36 }}>
-            {SHOWCASE_TEXT}
+            {text}
           </TegakiRenderer>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: 'light-dark(#9ca3af, #6b7280)' }}>
@@ -103,7 +123,12 @@ export function HomePageExamples() {
         <h2 style={{ fontSize: 24, fontWeight: 600, color: 'light-dark(#111827, #f3f4f6)', marginBottom: 24 }}>Built-in Fonts</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))', gap: 24 }}>
           {fonts.map((f) => (
-            <FontCard key={f.name} name={f.name} bundle={f.bundle} />
+            <FontCard
+              key={f.name}
+              name={f.name}
+              bundle={f.bundle}
+              text={SHOWCASE_TEXTS[f.name as keyof typeof FONT_IMPORTS] ?? DEFAULT_SHOWCASE_TEXT}
+            />
           ))}
         </div>
       </section>

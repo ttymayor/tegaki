@@ -14,7 +14,7 @@ Monorepo for generating and rendering handwriting animations from any font.
 
 ## Packages
 
-- `packages/renderer` (`tegaki`) — Published npm package. Framework-agnostic animated handwriting renderer with adapters for React, Svelte, Vue, Nuxt, SolidJS, Astro, Web Components, vanilla JS, and Remotion. Ships pre-generated bundles for Caveat, Italianno, Tangerine, and Parisienne under `tegaki/fonts/*`.
+- `packages/renderer` (`tegaki`) — Published npm package. Framework-agnostic animated handwriting renderer with adapters for React, Svelte, Vue, Nuxt, SolidJS, Astro, Web Components, vanilla JS, and Remotion. Ships pre-generated bundles under `tegaki/fonts/*`: Caveat, Italianno, Tangerine, Parisienne (Latin), Suez One (Hebrew), Amiri (Arabic), and Klee One (Japanese — kana + Kyōiku grade 1–2 kanji). Bundle generation is orchestrated by [packages/renderer/scripts/generate-fonts.ts](packages/renderer/scripts/generate-fonts.ts); per-script character sets are exported from `tegaki-generator` (`HEBREW_CHARS`, `ARABIC_CHARS`, `JAPANESE_CHARS`, `CHARSET_PRESETS` — see [packages/generator/src/charsets.ts](packages/generator/src/charsets.ts)).
 - `packages/generator` (`tegaki-generator`) — Internal CLI + library that generates glyph data from fonts. Not published; users generate font data via the website UI (which calls the same pipeline in-browser).
 - `packages/website` (`@tegaki/website`) — Astro + Starlight site containing the docs, framework examples, and the interactive generator/preview app at `/tegaki/generator/`.
 
@@ -118,16 +118,16 @@ packages/generator/src/
 
 ### Website (`packages/website`)
 
-Astro 6 site built on Starlight (theme: Nova) serving the public docs at the root and the interactive generator at `/tegaki/generator/`. Starlight handles the sidebar/content docs under `src/content/docs/`; the generator page is a standalone Astro page mounting the React `PreviewApp`.
+Astro 6 site built on Starlight (theme: Nova) serving the public docs at the root and the interactive generator at `/tegaki/generator/`. Starlight handles the sidebar/content docs under `src/content/docs/`; the generator page is a standalone Astro page mounting the React `GeneratorApp`.
 
 ```
 packages/website/
   astro.config.ts             # Astro config — `base: '/tegaki'`, integrations (React, Svelte, Vue, Solid, Starlight), vite aliases (`tegaki@dev`)
   public/                     # Static assets served as-is (favicon, OG card, robots.txt)
   src/
-    pages/generator.astro     # Mounts <PreviewApp client:only="react" />
+    pages/generator.astro     # Mounts <GeneratorApp client:only="react" />
     components/
-      PreviewApp.tsx          # The generator UI: glyph inspector + text preview, all state persisted to URL
+      GeneratorApp.tsx        # The generator UI: glyph inspector + text preview, all state persisted to URL
       url-state.ts            # URL <-> state serialization (short keys, only non-defaults written)
       LiveDemo.tsx            # Embeddable React demo used in docs
       HomePageExamples.tsx
@@ -141,11 +141,16 @@ packages/website/
     styles/global.css         # Tailwind v4 styles (imported via `@tailwindcss/vite`)
 ```
 
-Dev server: `bun dev` → Astro at `http://localhost:4321/tegaki/` (generator at `/tegaki/generator/`; `/tegaki/preview` redirects to `/tegaki/generator`).
+Dev server: `bun dev` → Astro at `http://localhost:4321/tegaki/`. Two preview routes share the same URL-state schema:
+
+- `/tegaki/generator/` — the interactive UI (`GeneratorApp`): sidebar, controls, glyph inspector, text preview tab.
+- `/tegaki/preview/` — a chrome-free standalone text renderer (`StandaloneTextPreview`) that reads the same URL state and renders only the text. Use this for screenshots / snapshots — no UI to crop out, and `window.__tegakiPreviewReady` / `body[data-tegaki-ready]` are set once the bundle is built so tooling can wait deterministically.
+
+The Text Preview tab in the generator has an "open in new tab" icon button next to the textarea that opens the current state in `/preview` (just swaps `/generator` → `/preview` in the URL).
 
 #### Testing the preview app via URL state
 
-`PreviewApp` persists nearly all of its state to the URL through short keys (see [packages/website/src/components/url-state.ts](packages/website/src/components/url-state.ts)). This is the primary way for an agent to drive the UI reproducibly — navigate to a URL, inspect the rendered output, change a param, repeat. Only values that differ from defaults are serialized, so unset params are equivalent to defaults.
+Both pages persist / read the same state via the short keys defined in [packages/website/src/components/url-state.ts](packages/website/src/components/url-state.ts) (only `GeneratorApp` writes; `/preview` is read-only). This is the primary way for an agent to drive rendering reproducibly — navigate to a URL, inspect the rendered output, change a param, repeat. Only values that differ from defaults are serialized, so unset params are equivalent to defaults.
 
 Common keys (non-exhaustive — `url-state.ts` is the source of truth):
 
@@ -172,11 +177,14 @@ Pipeline options are also URL-addressable (`res`, `sk`, `bt`, `rt`, ... — see 
 **Typical workflow for an agent inspecting a frame:**
 
 1. Start the dev server (`bun dev`) if it isn't already running.
-2. Navigate to a URL encoding the desired state, e.g.
-   `http://localhost:4321/tegaki/generator/?m=text&t=Hello&tm=controlled&ct=1.25&fs=96`
-3. Take a screenshot / snapshot via whatever browser tooling is available (e.g. the `chrome-devtools` MCP — `new_page`, `navigate_page`, `take_screenshot`). The timeline will be **paused at `ct`**, so screenshots are deterministic.
+2. Navigate to a `/tegaki/preview/` URL encoding the desired state, e.g.
+   `http://localhost:4321/tegaki/preview/?t=Hello&tm=controlled&ct=1.25&fs=96`
+   Use `/preview` (not `/generator`) for visual testing — it has no chrome, so the rendered text fills the viewport and screenshots are easy to crop. Pass `w=…&h=…` to fix the container size in pixels (defaults to `100%`).
+3. Take a screenshot / snapshot via whatever browser tooling is available (e.g. the `chrome-devtools` MCP — `new_page`, `navigate_page`, `take_screenshot`). The timeline will be **paused at `ct`**, so screenshots are deterministic. Wait for `body[data-tegaki-ready="true"]` (or `window.__tegakiPreviewReady`) before snapshotting so the font and bundle are guaranteed to be loaded.
 4. To sweep frames, vary `ct` and re-navigate; the page does not hot-swap URL state, so a reload / re-navigation is required.
 5. To capture the final frame, pass a `ct` value greater than the timeline duration — it clamps to the end and stays paused.
+
+If you need to drive the interactive UI instead of taking a screenshot (e.g. flipping pipeline options through controls rather than URL params), use `/tegaki/generator/` with the same state keys.
 
 Caveats:
 - `ct` only applies in `tm=controlled`. In `uncontrolled` (engine-driven rAF) or `css` (scroll-timeline) modes the animation is not seekable by time; the param is ignored.
@@ -223,6 +231,33 @@ The `generate` command writes a bundle directory containing three files:
   - `a` — animation duration of the stroke (seconds)
 
 The verbose in-memory shape (`FontOutput`/`GlyphData` with `boundingBox`, `path`, full `skeleton`, per-point `t`, etc.) is defined in `packages/renderer/src/types.ts` and is produced internally by the pipeline — only the compact projection above is persisted.
+
+## Testing
+
+Two layers:
+
+- **Unit tests** (Bun's built-in runner): `*.test.ts` files alongside source. Import from `'bun:test'`, use `describe` / `test` / `expect`. Run with `bun run test` from the repo root.
+- **Visual / e2e tests** (Playwright + committed screenshot snapshots): live in [packages/website/tests/e2e/*.e2e.ts](packages/website/tests/e2e). The `.e2e.ts` extension is intentional — `bun test` matches `*.spec.ts` / `*.test.ts`, so the e2e files stay out of the unit suite.
+
+### Writing unit tests
+
+Prefer the smallest layer that exercises the behaviour. If logic is buried inside a closure or hook, lift it out into a pure helper, export it, and test that — the way `splitForShaping` and `isShapingWhitespace` are exported from [packages/renderer/src/shaper-harfbuzz/index.ts](packages/renderer/src/shaper-harfbuzz/index.ts) so [the tests](packages/renderer/src/shaper-harfbuzz/index.test.ts) can drive them without spinning up wasm. Each `test` should pin one behaviour, with a name that reads as the rule it locks in (e.g. `'"s s" splits into word, space, word — preventing calt across the gap'`).
+
+### Visual snapshot tests
+
+The Playwright suite drives [/tegaki/preview/](packages/website/src/components/preview/StandaloneTextPreview.tsx) (the chrome-free standalone renderer) with URL params and snapshots the `[data-tegaki-container]` element. Snapshots live in `tests/e2e/text-preview.e2e.ts-snapshots/` and are committed per platform — `*-chromium-darwin.png` and `*-chromium-linux.png`. CI runs the linux files in the Playwright Ubuntu image, so any new case needs **both**.
+
+`playwright.config.ts` sets `maxDiffPixelRatio: 0.02` to tolerate sub-pixel antialiasing drift, and `animations: 'disabled'` while snapshotting. The runner waits on `body[data-tegaki-ready="true"]` and `document.fonts.ready` before capturing, so frames are deterministic as long as `tm=controlled` + a fixed `ct` are passed.
+
+To add a case:
+
+1. Append a `PreviewCase` to the `CASES` array in [text-preview.e2e.ts](packages/website/tests/e2e/text-preview.e2e.ts) with deterministic params: `tm=controlled` + a fixed `ct` for a stable frame, `w` / `h` to fix the container size in pixels. Use `ol=1` and a mid-timeline `ct` when the case needs to lock in the canvas/overlay seam (both layers visible in one frame).
+2. Generate the local darwin baseline: `cd packages/website && bun test:e2e:update`.
+3. Generate the linux baseline (required for CI): `cd packages/website && bun test:e2e:docker:update`. Runs the same Playwright Ubuntu image CI uses — needs Docker. Without this CI will fail with "missing snapshot".
+4. Eyeball the produced PNGs to confirm they capture the intended behaviour (don't just trust a passing test — a buggy fix can still snapshot cleanly). Commit both `-darwin` and `-linux` files alongside the test code change.
+5. Verify with `bun test:e2e` (darwin) and `bun test:e2e:docker` (linux).
+
+When in doubt, give the case a name that reads as the regression it guards against — `calt-not-across-space` over `ss-test`.
 
 ## Conventions
 

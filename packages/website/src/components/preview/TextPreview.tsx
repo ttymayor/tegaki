@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TegakiBundle, TegakiRendererHandle, TimeControlProp } from 'tegaki';
 import type { ParsedFontInfo, PipelineOptions, PipelineResult } from 'tegaki-generator';
 import { type CustomEffect, DEFAULT_EFFECTS_STATE, EFFECT_DEFAULTS, type EffectsState, type TimeMode } from '../url-state.ts';
-import { EASING_PRESETS, getEasingFn } from './constants.ts';
+import { EASING_PRESETS, getEasingFn, TEXT_PRESETS } from './constants.ts';
 import { CustomEffectControls, EffectColor, EffectSlider, GradientColorStops } from './effect-controls.tsx';
 import { TegakiTextPreview } from './TegakiTextPreview.tsx';
 import { buildEffects } from './utils.ts';
@@ -41,6 +41,10 @@ export function TextPreview({
   onStrokeEasingChange,
   glyphEasing,
   onGlyphEasingChange,
+  deferDots,
+  onDeferDotsChange,
+  useShaper,
+  onUseShaperChange,
 }: {
   fontInfo: ParsedFontInfo | null;
   fontBuffer: ArrayBuffer | null;
@@ -75,6 +79,10 @@ export function TextPreview({
   onStrokeEasingChange: (v: string) => void;
   glyphEasing: string;
   onGlyphEasingChange: (v: string) => void;
+  deferDots: boolean;
+  onDeferDotsChange: (v: boolean) => void;
+  useShaper: boolean;
+  onUseShaperChange: (v: boolean) => void;
 }) {
   // Initial time/paused state come from the URL (controlled mode only): a non-zero
   // `ct` param loads the timeline paused at that position so agents can inspect a
@@ -202,9 +210,13 @@ export function TextPreview({
   const timingConfig = useMemo(() => {
     const strokeFn = getEasingFn(strokeEasing);
     const glyphFn = getEasingFn(glyphEasing);
-    if (strokeFn === undefined && glyphFn === undefined) return undefined;
-    return { ...(strokeFn !== undefined ? { strokeEasing: strokeFn } : {}), ...(glyphFn !== undefined ? { glyphEasing: glyphFn } : {}) };
-  }, [strokeEasing, glyphEasing]);
+    if (strokeFn === undefined && glyphFn === undefined && deferDots) return undefined;
+    return {
+      ...(strokeFn !== undefined ? { strokeEasing: strokeFn } : {}),
+      ...(glyphFn !== undefined ? { glyphEasing: glyphFn } : {}),
+      ...(deferDots ? {} : { deferDots: false }),
+    };
+  }, [strokeEasing, glyphEasing, deferDots]);
 
   const activeEffectCount = effects ? Object.keys(effects).length : 0;
 
@@ -218,14 +230,55 @@ export function TextPreview({
   return (
     <div className="flex-1 flex flex-col">
       {/* Text input */}
-      <div className="p-3 border-b border-gray-200 bg-white">
-        <textarea
-          className="w-full px-3 py-2 border border-gray-300 rounded text-sm resize-y"
-          rows={2}
-          value={text}
-          onChange={(e) => onTextChange(e.target.value)}
-          placeholder="Type text to preview..."
-        />
+      <div className="p-3 border-b border-gray-200 bg-white flex flex-col gap-1.5">
+        <div className="flex flex-wrap gap-1">
+          {TEXT_PRESETS.map((p) => (
+            <button
+              type="button"
+              key={p.name}
+              className={`px-2 py-0.5 text-xs rounded cursor-pointer transition-colors ${
+                text === p.text ? 'bg-gray-800 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
+              onClick={() => onTextChange(p.text)}
+              title={p.text}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-start gap-2">
+          <textarea
+            className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm resize-y"
+            rows={2}
+            value={text}
+            onChange={(e) => onTextChange(e.target.value)}
+            placeholder="Type text to preview..."
+          />
+          <button
+            type="button"
+            onClick={() => {
+              const href = window.location.href.replace('/generator', '/preview');
+              window.open(href, '_blank', 'noopener,noreferrer');
+            }}
+            title="Open this text in the standalone /preview page (new tab)"
+            className="p-1.5 text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M15 3h6v6" />
+              <path d="M10 14L21 3" />
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Content area: preview + optional effects drawer */}
@@ -273,6 +326,7 @@ export function TextPreview({
                 lineHeightRatio={lineHeightRatio}
                 resultsCache={resultsCache}
                 onReady={handleReady}
+                useShaper={useShaper}
               />
             )}
           </div>
@@ -673,7 +727,7 @@ export function TextPreview({
                         className="w-24"
                         min={1}
                         max={5}
-                        step={0.5}
+                        step={0.05}
                         value={typeof quality.clipText === 'number' ? quality.clipText : 1}
                         onChange={(e) => {
                           const v = Number(e.target.value);
@@ -749,7 +803,7 @@ export function TextPreview({
                 className="flex-1 max-w-64"
                 min={0}
                 max={totalDuration}
-                step={0.01}
+                step={0.0001}
                 value={displayTime}
                 onChange={(e) => {
                   const t = Number(e.target.value);
@@ -860,6 +914,22 @@ export function TextPreview({
           <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
             <input type="checkbox" checked={showOverlay} onChange={(e) => onShowOverlayChange(e.target.checked)} />
             Overlay
+          </label>
+
+          <label
+            className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
+            title="Draw i-dots, nuqṭa, and other disconnected marks after every body stroke in the word"
+          >
+            <input type="checkbox" checked={deferDots} onChange={(e) => onDeferDotsChange(e.target.checked)} />
+            Defer dots
+          </label>
+
+          <label
+            className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer"
+            title="Run text through the harfbuzz shaper for ligatures, contextual forms, and RTL. Off uses the simpler char-keyed glyph path."
+          >
+            <input type="checkbox" checked={useShaper} onChange={(e) => onUseShaperChange(e.target.checked)} />
+            Shaper
           </label>
 
           <span className="border-l border-gray-200 h-6" />

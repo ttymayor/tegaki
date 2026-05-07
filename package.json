@@ -1,10 +1,9 @@
 {
   "name": "@tegaki/root",
-  "version": "0.11.1",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "workspaces": [
-    ".",
     "packages/*",
     "examples/*"
   ],
@@ -45,5 +44,8 @@
     "*": [
       "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true"
     ]
+  },
+  "dependencies": {
+    "harfbuzzjs": "^0.10.3"
   }
 }

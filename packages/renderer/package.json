@@ -84,6 +84,12 @@
       "types": "./dist/wc/index.d.mts",
       "import": "./dist/wc/index.mjs"
     },
+    "./shaper-harfbuzz": {
+      "tegaki@dev": "./src/shaper-harfbuzz/index.ts",
+      "source": "./src/shaper-harfbuzz/index.ts",
+      "types": "./dist/shaper-harfbuzz/index.d.mts",
+      "import": "./dist/shaper-harfbuzz/index.mjs"
+    },
     "./astro": "./src/astro/TegakiRenderer.astro",
     "./fonts/caveat": {
       "tegaki@dev": "./fonts/caveat/bundle.ts",
@@ -112,6 +118,27 @@
       "types": "./dist/fonts/parisienne/bundle.d.mts",
       "node": "./fonts/parisienne/bundle.ts",
       "default": "./dist/fonts/parisienne/bundle.mjs"
+    },
+    "./fonts/suez-one": {
+      "tegaki@dev": "./fonts/suez-one/bundle.ts",
+      "source": "./fonts/suez-one/bundle.ts",
+      "types": "./dist/fonts/suez-one/bundle.d.mts",
+      "node": "./fonts/suez-one/bundle.ts",
+      "default": "./dist/fonts/suez-one/bundle.mjs"
+    },
+    "./fonts/klee-one": {
+      "tegaki@dev": "./fonts/klee-one/bundle.ts",
+      "source": "./fonts/klee-one/bundle.ts",
+      "types": "./dist/fonts/klee-one/bundle.d.mts",
+      "node": "./fonts/klee-one/bundle.ts",
+      "default": "./dist/fonts/klee-one/bundle.mjs"
+    },
+    "./fonts/amiri": {
+      "tegaki@dev": "./fonts/amiri/bundle.ts",
+      "source": "./fonts/amiri/bundle.ts",
+      "types": "./dist/fonts/amiri/bundle.d.mts",
+      "node": "./fonts/amiri/bundle.ts",
+      "default": "./dist/fonts/amiri/bundle.mjs"
     }
   },
   "files": [
@@ -127,10 +154,11 @@
     "typecheck": "tsc --noEmit",
     "build": "tsdown",
     "prepack": "bun run build && bun ../../scripts/prepareForRelease.ts",
-    "generate-fonts": "bun --filter tegaki-generator start generate Caveat --output ../renderer/fonts/caveat && bun --filter tegaki-generator start generate Italianno --output ../renderer/fonts/italianno && bun --filter tegaki-generator start generate Tangerine --output ../renderer/fonts/tangerine && bun --filter tegaki-generator start generate Parisienne --output ../renderer/fonts/parisienne"
+    "generate-fonts": "bun scripts/generate-fonts.ts"
   },
   "dependencies": {},
   "peerDependencies": {
+    "harfbuzzjs": "^0.10.3",
     "@nuxt/kit": "^3.0.0 || ^4.0.0",
     "react": ">=18",
     "svelte": ">=5",
@@ -139,6 +167,9 @@
   },
   "peerDependenciesMeta": {
     "@nuxt/kit": {
+      "optional": true
+    },
+    "harfbuzzjs": {
       "optional": true
     },
     "react": {
@@ -155,9 +186,11 @@
     }
   },
   "devDependencies": {
+    "harfbuzzjs": "^0.10.3",
     "@nuxt/kit": "^3.15.0",
     "@nuxt/schema": "^3.15.0",
     "@types/react": "^19.2.14",
+    "tegaki-generator": "workspace:*",
     "tsdown": "^0.21.9",
     "typescript": "^6.0.3"
   }

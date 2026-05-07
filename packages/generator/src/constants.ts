@@ -20,10 +20,18 @@ export const EXAMPLE_FONTS = [
   'Satisfy',
   'Shadows Into Light',
   'Tangerine',
-  'Noto Sans JP',
-  'Noto Sans KR',
-  'Noto Sans SC',
-  'Rubik',
+  'Noto Sans JP', // Japanese Sans
+  'Shippori Mincho B1', // Japanese Serif
+  'Klee One', // Japanese handwriting
+  'Noto Sans SC', // Chinese Sans
+  'Ma Shan Zheng', // Chinese Cursive
+  'Noto Sans KR', // Korean Sans
+  'Nanum Myeongjo', // Korean Serif
+  'Rubik', // Arabic Sans
+  'Amiri', // Arabic Cursive
+  'Cardo', // Hebrew
+  'Suez One', // Hebrew display
+  'EB Garamond', // Greek
 ];
 
 export const CACHE_DIR = '.cache/fonts';

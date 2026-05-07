@@ -29,6 +29,7 @@ export function buildRootProps(options: TegakiEngineOptions): Record<string, any
 
   return {
     'data-tegaki': 'root',
+    dir: options?.direction ?? 'auto',
     style: {
       position: 'relative',
       maxWidth: '100%',
@@ -104,6 +105,7 @@ export function buildChildren<T>(options: TegakiEngineOptions, h: CreateElementF
           whiteSpace: 'pre-wrap',
           overflowWrap: 'break-word',
           paddingInlineEnd: 1,
+          textRendering: 'geometricPrecision',
           WebkitTextFillColor: showOverlay ? undefined : 'transparent',
           color: showOverlay ? 'rgba(255, 0, 0, 0.4)' : undefined,
         },

@@ -15,6 +15,7 @@ const props = defineProps<{
   showOverlay?: boolean;
   onComplete?: () => void;
   direction?: 'ltr' | 'rtl';
+  shaper?: boolean;
 }>();
 
 defineOptions({ inheritAttrs: false });
@@ -31,6 +32,7 @@ const engineOptions = computed<TegakiEngineOptions>(() => ({
   timing: props.timing,
   showOverlay: props.showOverlay,
   direction: props.direction,
+  shaper: props.shaper,
   onComplete: props.onComplete,
 }));
 
@@ -92,5 +94,5 @@ defineExpose({ engine, element: container });
 </script>
 
 <template>
-  <div ref="container" data-tegaki="root" :style="rootProps.style" v-bind="$attrs" v-html="innerHtml" />
+  <div ref="container" data-tegaki="root" dir="auto" :style="rootProps.style" v-bind="$attrs" v-html="innerHtml" />
 </template>

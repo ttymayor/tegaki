@@ -63,6 +63,28 @@ export interface TimelineEntry {
    * shifted to after every body stroke in the word has drawn.
    */
   strokeDelays?: (number | undefined)[];
+  /**
+   * X offset of this glyph relative to its visual line's left edge, in em.
+   * Populated by `applyShaperPositions` from the shaper's pen-walk: this is
+   * `pen.x + dx` where `dx` is the GPOS x-offset for the glyph. The engine
+   * combines it with `layout.lineLefts[lineIdx]` to get the final draw x.
+   *
+   * Why per-entry rather than per-grapheme: in clusters with mark glyphs
+   * (e.g. Arabic dot below ي), the base and the mark have different `dx` via
+   * mark-attachment GPOS. Storing per-entry preserves both. Falls back to
+   * `layout.charOffsets[graphemeIndex]` when undefined.
+   */
+  xOffsetEm?: number;
+  /**
+   * Y offset of this glyph relative to the line baseline, in em (positive =
+   * down, mirroring CSS axis). Populated by `applyShaperPositions` as
+   * `-dy / unitsPerEm` (HB's `dy` is y-up, ours is y-down). Encodes Arabic
+   * cursive-attachment GPOS — Aref Ruqaa's wavy Ruq'ah baseline lifts each
+   * connected letter by ~250 font units — and mark-attachment vertical
+   * offsets. The engine adds `yOffsetEm * fontSize` to `glyphY` so the glyph
+   * draws at the correct cursive-lifted height.
+   */
+  yOffsetEm?: number;
 }
 
 export interface Timeline {

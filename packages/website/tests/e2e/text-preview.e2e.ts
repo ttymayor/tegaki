@@ -100,6 +100,26 @@ const CASES: PreviewCase[] = [
     name: 'overlay-canvas-seam',
     params: { t: 'Handwriting is awesome', tm: 'controlled', ct: 8.6411, fs: 72, w: 900, h: 200, ol: 1 },
   },
+  {
+    // Aref Ruqaa is a Ruq'ah-style Arabic font where connected letters step
+    // up via cursive-attachment GPOS — HarfBuzz emits per-glyph dy lifts of
+    // up to ~250 font units. Without honouring those, the canvas strokes
+    // sit on a flat baseline while the DOM overlay shows the wavy Ruq'ah
+    // baseline; with overlay on, they only align if the engine threads
+    // each glyph's GPOS dy/ay through to its draw origin.
+    name: 'arabic-cursive-attachment',
+    params: { f: 'Aref Ruqaa', ch: '', t: 'السلام عليكم', tm: 'controlled', ct: 1000, fs: 96, w: 700, h: 220, ol: 1, lc: 'round' },
+  },
+  {
+    // Mid-animation seam guard for Arabic: the canvas-drawn portion must
+    // still sit on the same cursive-lifted positions as the not-yet-drawn
+    // overlay portion. Pairs with `arabic-cursive-attachment` to lock in
+    // GPOS plumbing (a regression that drops ay/dy will diverge here even
+    // if the final-frame snapshot looks fine because the overlay glyphs
+    // are also misplaced uniformly).
+    name: 'arabic-cursive-attachment-mid',
+    params: { f: 'Aref Ruqaa', ch: '', t: 'السلام عليكم', tm: 'controlled', ct: 4.5, fs: 96, w: 700, h: 220, ol: 1, lc: 'round' },
+  },
 ];
 
 test('Standalone text preview — snapshots across URL params', async ({ page }) => {

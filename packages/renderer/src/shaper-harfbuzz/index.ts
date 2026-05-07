@@ -176,6 +176,16 @@ async function buildShaper(bundle: TegakiBundle): Promise<BundleShaper> {
     return out;
   };
 
+  // Pick the dominant subset of a non-whitespace segment from its first
+  // codepoint. Used to route an adjacent whitespace segment through the
+  // matching font when shaping with neighbour context.
+  const dominantSubset = (segText: string): number => {
+    if (!segText) return 0;
+    const cp = segText.codePointAt(0) ?? segText.charCodeAt(0);
+    const sub = pickSubset(cp);
+    return sub < 0 ? 0 : sub;
+  };
+
   return {
     shape(text: string): ShapedGlyph[] {
       if (!text) return [];
@@ -186,9 +196,57 @@ async function buildShaper(bundle: TegakiBundle): Promise<BundleShaper> {
       // output matches what the DOM overlay renders. Without this, fonts
       // like Caveat would calt the second `s` of "s s" via the first one
       // — the canvas would diverge from CSS-shaped text.
+      //
+      // Whitespace segments themselves still need GPOS context: many
+      // Arabic fonts (e.g. Aref Ruqaa) shrink the space advance via a
+      // contextual lookup when it's flanked by Arabic letters — shaping
+      // " " in isolation misses that and the canvas drifts from the DOM
+      // overlay by the leftover advance. So for whitespace segments,
+      // shape together with a non-whitespace neighbour and emit only the
+      // glyphs whose cluster falls inside the whitespace range. The
+      // neighbour's own glyphs are still produced by its own isolated
+      // shapeSegment call, so cross-space calt/liga stay suppressed.
+      const segments = splitForShaping(text);
       const out: ShapedGlyph[] = [];
-      for (const seg of splitForShaping(text)) {
-        out.push(...shapeSegment(seg.text, seg.offset));
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i]!;
+        if (!seg.isWhitespace) {
+          out.push(...shapeSegment(seg.text, seg.offset));
+          continue;
+        }
+        // Prefer a preceding neighbour — for scripts whose contextual rules
+        // care about post-letter position (Arabic space-after-letter), the
+        // preceding word is the relevant context. Fall back to the next
+        // neighbour for leading whitespace.
+        let neighbourIdx = -1;
+        for (let j = i - 1; j >= 0; j--) {
+          if (!segments[j]!.isWhitespace) {
+            neighbourIdx = j;
+            break;
+          }
+        }
+        if (neighbourIdx < 0) {
+          for (let j = i + 1; j < segments.length; j++) {
+            if (!segments[j]!.isWhitespace) {
+              neighbourIdx = j;
+              break;
+            }
+          }
+        }
+        if (neighbourIdx < 0) {
+          // All-whitespace input — no context to borrow, shape standalone.
+          out.push(...shapeSegment(seg.text, seg.offset));
+          continue;
+        }
+        const neighbour = segments[neighbourIdx]!;
+        const subset = dominantSubset(neighbour.text);
+        const composite = neighbourIdx < i ? `${neighbour.text}${seg.text}` : `${seg.text}${neighbour.text}`;
+        const compositeOffset = neighbourIdx < i ? neighbour.offset : seg.offset;
+        const wsStart = seg.offset;
+        const wsEnd = seg.offset + seg.text.length;
+        for (const g of shapeRun(subset, composite, compositeOffset)) {
+          if (g.cl >= wsStart && g.cl < wsEnd) out.push(g);
+        }
       }
       return out;
     },

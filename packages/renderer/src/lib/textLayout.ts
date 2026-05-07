@@ -1,5 +1,6 @@
 import type { TegakiBundle } from '../types.ts';
 import type { BundleShaper, ShapedGlyph } from './shaper.ts';
+import type { Timeline } from './timeline.ts';
 import { graphemes } from './utils.ts';
 
 // Strong-RTL codepoints: Hebrew, Arabic, Syriac, Thaana, NKo, Samaritan,
@@ -14,6 +15,14 @@ export interface TextLayout {
   charOffsets: number[];
   /** Width in em per character index */
   charWidths: number[];
+  /**
+   * Visual-left edge of each line in em (parallel to `lines`). Populated by
+   * `applyShaperPositions` and consumed by the engine when a timeline entry
+   * carries per-glyph offsets \u2014 engine adds `lineLefts[lineIdx]` to
+   * `entry.xOffsetEm` to get the absolute x position. Undefined when the
+   * shaper path isn't taken; consumers must fall back to `charOffsets`.
+   */
+  lineLefts?: number[];
 }
 
 /**
@@ -153,7 +162,12 @@ function measureElement(el: HTMLElement, fontSize: number): TextLayout {
 
 /**
  * Replace `layout.charOffsets` and `charWidths` with values computed from the
- * shaper's advances, while preserving the DOM's line-break decisions.
+ * shaper's advances, while preserving the DOM's line-break decisions. When a
+ * `timeline` is provided, each entry's `xOffsetEm` and `yOffsetEm` are also
+ * filled in from the shaper's per-glyph pen-walk (mutated in place) and
+ * `layout.lineLefts` is populated — together they let the engine draw each
+ * glyph at its GPOS-positioned origin (cursive-attachment lift, mark
+ * attachment) instead of sharing one position per cluster.
  *
  * The DOM's Range API returns imprecise per-grapheme rects inside a complex-
  * shaped cluster (Arabic joining, Indic conjuncts, ligatures with kern/mark
@@ -172,6 +186,7 @@ export function applyShaperPositions(
   fontSize: number,
   font: TegakiBundle,
   shaper: BundleShaper,
+  timeline?: Timeline,
 ): TextLayout {
   const chars = graphemes(text);
   if (!chars.length) return layout;
@@ -198,9 +213,27 @@ export function applyShaperPositions(
 
   const charOffsets = layout.charOffsets.slice();
   const charWidths = layout.charWidths.slice();
+  const lineLefts: number[] = new Array(layout.lines.length).fill(0);
   const emPerUnit = 1 / font.unitsPerEm;
 
-  for (const lineIndices of layout.lines) {
+  // Index timeline entries by `graphemeIndex:glyphId` so each shaped glyph
+  // can find its corresponding entry and fill in xOffsetEm/yOffsetEm.
+  // Multiple entries can share the same key if the same glyph repeats inside
+  // a cluster (rare); FIFO-pop preserves emission order across the duplicate.
+  const entryQueue = new Map<string, number[]>();
+  if (timeline) {
+    for (let ei = 0; ei < timeline.entries.length; ei++) {
+      const e = timeline.entries[ei]!;
+      if (e.glyphId === undefined) continue;
+      const key = `${e.graphemeIndex}:${e.glyphId}`;
+      const list = entryQueue.get(key);
+      if (list) list.push(ei);
+      else entryQueue.set(key, [ei]);
+    }
+  }
+
+  for (let li = 0; li < layout.lines.length; li++) {
+    const lineIndices = layout.lines[li]!;
     const realIndices = lineIndices.filter((idx) => chars[idx] !== '\n');
     if (realIndices.length === 0) continue;
 
@@ -218,6 +251,7 @@ export function applyShaperPositions(
     let lineLeftPx = Infinity;
     for (const r of lineRects) if (r.left < lineLeftPx) lineLeftPx = r.left;
     const lineLeftEm = (lineLeftPx - elLeft) / scale / fontSize;
+    lineLefts[li] = lineLeftEm;
 
     // Harfbuzz emits glyphs in a per-run visual order: within each bidi/word
     // run (contiguous stretch where cluster indices walk monotonically) the
@@ -234,21 +268,42 @@ export function applyShaperPositions(
     if (shaped.length === 0) continue;
     const visualGlyphs = lineRTL ? reverseRTLRuns(shaped) : shaped;
 
-    // Walk glyphs in visual order. Glyph draw position is pen + dx, and the
-    // pen advances by ax after each glyph. Record each cluster's visual
-    // left (using the first glyph in visual order that belongs to it) and
-    // its summed advance. Marks have ax=0 and share their base's pen
-    // position but may have their own dx/dy — those only matter for mark
-    // drawing, which the renderer doesn't emit as separate strokes.
+    // Walk glyphs in visual order. Glyph draw position is pen + (dx, dy),
+    // and the pen advances by (ax, ay) after each glyph. HarfBuzz uses a
+    // y-up coordinate system; we negate dy/ay to match our y-down draw
+    // axis. Record each cluster's visual left + summed advance for layout
+    // (consumed by the engine's fallback path, the layout bbox, and any
+    // consumer that indexes by grapheme), and fill in per-entry x/y for
+    // the engine's primary draw path so marks land on their base correctly.
     const clusterLeft = new Map<number, number>();
     const clusterAdvance = new Map<number, number>();
     let penEm = 0;
+    let penYEm = 0;
     for (const g of visualGlyphs) {
       const axEm = g.ax * emPerUnit;
+      const ayEm = g.ay * emPerUnit;
       const dxEm = g.dx * emPerUnit;
-      if (!clusterLeft.has(g.cl)) clusterLeft.set(g.cl, penEm + dxEm);
+      const dyEm = g.dy * emPerUnit;
+      const glyphXEm = penEm + dxEm;
+      const glyphYEm = penYEm - dyEm;
+      if (!clusterLeft.has(g.cl)) clusterLeft.set(g.cl, glyphXEm);
       clusterAdvance.set(g.cl, (clusterAdvance.get(g.cl) ?? 0) + axEm);
+
+      if (timeline) {
+        const gIdx = utf16ToGrapheme[lineStartU + g.cl];
+        if (gIdx !== undefined && gIdx >= 0) {
+          const queue = entryQueue.get(`${gIdx}:${g.g}`);
+          const ei = queue?.shift();
+          if (ei !== undefined) {
+            const entry = timeline.entries[ei]!;
+            entry.xOffsetEm = glyphXEm;
+            entry.yOffsetEm = glyphYEm;
+          }
+        }
+      }
+
       penEm += axEm;
+      penYEm -= ayEm;
     }
 
     // Assign offsets to the grapheme at each cluster start.
@@ -279,7 +334,7 @@ export function applyShaperPositions(
     }
   }
 
-  return { lines: layout.lines, charOffsets, charWidths };
+  return { lines: layout.lines, charOffsets, charWidths, lineLefts };
 }
 
 /**

@@ -657,8 +657,11 @@ export class TegakiEngine {
       if (this._shaper && this._font) {
         // Replace DOM-measured per-grapheme offsets with shaper-accumulated
         // advances so stroke positions match the glyph ids the shaper chose.
+        // Also fills in per-entry GPOS x/y offsets on the (already-computed)
+        // timeline — essential for Arabic cursive attachment and mark
+        // positioning, where each glyph in a cluster needs its own origin.
         // The DOM is still the source of truth for line breaks.
-        layout = applyShaperPositions(layout, this._overlayEl, this._text, this._fontSize, this._font, this._shaper);
+        layout = applyShaperPositions(layout, this._overlayEl, this._text, this._fontSize, this._font, this._shaper, this._timeline);
       }
       this._layout = layout;
     } else {
@@ -936,7 +939,17 @@ export class TegakiEngine {
       const lineIdx = graphemeToLine[charIdx] ?? -1;
       if (lineIdx < 0) continue;
       const y = lineIdx * lineHeight;
-      const x = (layout.charOffsets[charIdx] ?? 0) * fontSize;
+      // Prefer per-entry GPOS-positioned offsets when the shaper populated
+      // them (Arabic cursive attachment, mark positioning, contextual kerning).
+      // The legacy per-grapheme `charOffsets` path is the fallback for the
+      // unshaped char-keyed render or any shape glyph that lacks a matching
+      // entry. `lineLefts[lineIdx]` anchors the entry-relative xOffsetEm to
+      // the visual line's left edge measured from the DOM.
+      const lineLeftEm = layout.lineLefts?.[lineIdx];
+      const x =
+        entry.xOffsetEm !== undefined && lineLeftEm !== undefined
+          ? (lineLeftEm + entry.xOffsetEm) * fontSize
+          : (layout.charOffsets[charIdx] ?? 0) * fontSize;
       const glyph = (entry.glyphId !== undefined ? font.glyphDataById?.[entry.glyphId] : undefined) ?? font.glyphData[entry.char];
 
       if (glyph && entry.hasGlyph) {
@@ -945,7 +958,10 @@ export class TegakiEngine {
         if (glyphEasing && entry.duration > 0) {
           localTime = glyphEasing(localTime / entry.duration) * entry.duration;
         }
-        const glyphY = y + halfLeading;
+        // Apply HB's GPOS y-offset (negated dy, in em y-down). Encodes Arabic
+        // cursive lift and mark vertical placement; zero for scripts that
+        // don't use vertical GPOS, so behaviour for Latin/Caveat is unchanged.
+        const glyphY = y + halfLeading + (entry.yOffsetEm ?? 0) * fontSize;
         drawGlyph(
           ctx,
           glyph,

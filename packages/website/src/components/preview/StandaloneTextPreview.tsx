@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { TegakiBundle, TimeControlProp, TimelineConfig } from 'tegaki';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { TegakiBundle, TegakiRendererHandle, TimeControlProp, TimelineConfig } from 'tegaki';
 import { type ParsedFontInfo, parseFont } from 'tegaki-generator';
 import { parseUrlState } from '../url-state.ts';
 import { getEasingFn } from './constants.ts';
@@ -84,8 +84,14 @@ export function StandaloneTextPreview() {
         ? { mode: 'uncontrolled' as const, speed: state.animSpeed, loop: state.loop, catchUp: state.catchUp || undefined }
         : 'css';
 
+  const rendererRef = useRef<TegakiRendererHandle>(null);
+
   const handleReady = useCallback((info: { bundle: TegakiBundle; totalDuration: number }) => {
     window.__tegakiPreviewReady = info;
+    // Expose the live engine for browser-harness / devtools inspection.
+    // Same affordance as the generator's TextPreview — keeps ad-hoc debugging
+    // available when running against the chrome-free /preview URL.
+    (window as Window & { __tegakiEngine?: unknown }).__tegakiEngine = rendererRef.current?.engine ?? null;
     document.body.setAttribute('data-tegaki-ready', 'true');
   }, []);
 
@@ -111,6 +117,7 @@ export function StandaloneTextPreview() {
   return (
     <div data-tegaki-container style={containerStyle}>
       <TegakiTextPreview
+        ref={rendererRef}
         style={{ width: '100%', height: '100%' }}
         fontInfo={fontInfo}
         fontBuffer={fontBuffer}

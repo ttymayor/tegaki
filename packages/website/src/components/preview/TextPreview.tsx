@@ -144,6 +144,15 @@ export function TextPreview({
   const handleReady = useCallback((info: { bundle: TegakiBundle; totalDuration: number }) => {
     setBundleReady(true);
     setTotalDuration(info.totalDuration);
+    // Mirror the renderer's engine onto `window.__tegakiEngine` so an attached
+    // browser-harness / devtools session can inspect timeline entries, layout
+    // offsets, and shaper output without modifying the engine itself. Fires
+    // whenever the bundle becomes ready (also on font swaps, since each
+    // engine is recreated per font). Pure dev affordance — does not affect
+    // rendering.
+    if (typeof window !== 'undefined') {
+      (window as Window & { __tegakiEngine?: unknown }).__tegakiEngine = rendererRef.current?.engine ?? null;
+    }
   }, []);
 
   const prevTotalRef = useRef(totalDuration);

@@ -35,10 +35,28 @@ import type { CreateElementFn, TegakiEngineOptions, TegakiQuality, TimeControlMo
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Parse a percentage string like `"50%"` into a 0–1 fraction. Returns `null`
+ * for non-percentage strings or unparseable input. Whitespace around the
+ * value is tolerated; the numeric part is parsed with `Number(...)`, so any
+ * finite numeric form (including negatives and decimals) is accepted.
+ */
+function parsePercentage(s: string): number | null {
+  const trimmed = s.trim();
+  if (!trimmed.endsWith('%')) return null;
+  const num = Number(trimmed.slice(0, -1));
+  return Number.isFinite(num) ? num / 100 : null;
+}
+
 function resolveTimeControl(prop: TimeControlProp): TimeControlMode[keyof TimeControlMode] {
   if (prop == null) return { mode: 'uncontrolled' };
   if (typeof prop === 'number') return { mode: 'controlled', value: prop };
-  if (prop === 'css') return { mode: 'css' };
+  if (typeof prop === 'string') {
+    if (prop === 'css') return { mode: 'css' };
+    const pct = parsePercentage(prop);
+    if (pct != null) return { mode: 'controlled', value: pct, unit: 'progress' };
+    return { mode: 'uncontrolled' };
+  }
   return prop;
 }
 
@@ -280,9 +298,22 @@ export class TegakiEngine {
     this._evaluatePlayback();
   }
 
-  seek(time: number): void {
+  /**
+   * Seek the (uncontrolled) timeline to an absolute time. Accepts seconds
+   * (number) or a percentage string like `"50%"`, which is interpreted as
+   * a fraction of the timeline's total duration.
+   */
+  seek(time: number | `${number}%`): void {
     if (this._timeControl.mode !== 'uncontrolled') return;
-    this._internalTime = Math.max(0, Math.min(time, this._timeline.totalDuration));
+    let resolved: number;
+    if (typeof time === 'string') {
+      const pct = parsePercentage(time);
+      if (pct == null) return;
+      resolved = pct * this._timeline.totalDuration;
+    } else {
+      resolved = time;
+    }
+    this._internalTime = Math.max(0, Math.min(resolved, this._timeline.totalDuration));
     this._delayRemaining = 0;
     this._loopGapRemaining = 0;
     this._checkCompletion();

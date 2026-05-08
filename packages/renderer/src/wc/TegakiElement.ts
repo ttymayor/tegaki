@@ -6,7 +6,7 @@ import type { TegakiBundle } from '../types.ts';
  * Observed attribute names.
  * - `text`: the text to render (also settable via textContent)
  * - `font`: registered bundle name (see {@link TegakiEngine.registerBundle})
- * - `time`: time control — a number for controlled mode, `"css"` for CSS mode, omit for uncontrolled
+ * - `time`: time control — a number (seconds) or percentage string like `"50%"` (progress) for controlled mode, `"css"` for CSS mode, omit for uncontrolled
  * - `speed`: playback speed multiplier (uncontrolled mode, default `1`). Mutually exclusive with `duration`.
  * - `duration`: stretch/compress one iteration to this many seconds (uncontrolled mode). Mutually exclusive with `speed`; takes precedence when both are present.
  * - `playing`: whether animation is playing (uncontrolled mode, default `true`)
@@ -162,7 +162,7 @@ export class TegakiElement extends HTMLElement {
     this._engine?.pause();
   }
 
-  seek(time: number): void {
+  seek(time: number | `${number}%`): void {
     this._engine?.seek(time);
   }
 
@@ -237,6 +237,9 @@ export class TegakiElement extends HTMLElement {
     if (timeAttr != null) {
       const num = Number(timeAttr);
       if (!Number.isNaN(num)) return num;
+      // Pass non-numeric strings (e.g. "50%") through to the engine, which
+      // resolves percentages to controlled progress.
+      if (timeAttr.trim().endsWith('%')) return timeAttr as TimeControlProp;
     }
 
     // Check for uncontrolled mode attributes

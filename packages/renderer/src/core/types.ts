@@ -73,10 +73,12 @@ export type TimeControlMode = {
 
 /**
  * A plain number is shorthand for `{ mode: 'controlled', value: number }`.
+ * A percentage string like `'50%'` is shorthand for
+ * `{ mode: 'controlled', value: 0.5, unit: 'progress' }`.
  * `'css'` is shorthand for `{ mode: 'css' }`.
  * Omit for uncontrolled mode with default settings.
  */
-export type TimeControlProp = null | undefined | number | 'css' | TimeControlMode[keyof TimeControlMode];
+export type TimeControlProp = null | undefined | number | `${number}%` | 'css' | TimeControlMode[keyof TimeControlMode];
 
 // ---------------------------------------------------------------------------
 // Quality

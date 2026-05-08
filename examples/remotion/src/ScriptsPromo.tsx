@@ -50,7 +50,7 @@ const T = {
   footer: [355, 385] as const,
 };
 
-const HOLD_END = 410; // ~13.7s
+const HOLD_END = 500; // ~16.7s
 
 export const SCRIPTS_PROMO_FPS = 30;
 export const SCRIPTS_PROMO_WIDTH = 1920;
@@ -157,13 +157,13 @@ export const ScriptsPromo: React.FC = () => {
         style={{
           ...SANS,
           color: MUTED,
-          fontSize: 18,
+          fontSize: 40,
           letterSpacing: 8,
           textTransform: 'uppercase',
           fontWeight: 500,
         }}
       >
-        Tegaki · v0.17
+        Tegaki v0.17
       </div>
 
       {/* Title — Caveat handwriting */}

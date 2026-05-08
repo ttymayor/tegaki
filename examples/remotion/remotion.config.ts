@@ -8,6 +8,18 @@ import { Config } from '@remotion/cli/config';
 Config.overrideWebpackConfig((config) => {
   return {
     ...config,
+    resolve: {
+      ...config.resolve,
+      // harfbuzzjs ships an Emscripten-generated module that statically
+      // requires Node built-ins (fs/path/crypto) inside a runtime branch
+      // that's only taken under Node. Stub them out for the browser bundle.
+      fallback: {
+        ...config.resolve?.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+      },
+    },
     module: {
       ...config.module,
       rules: [

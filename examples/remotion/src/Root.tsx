@@ -2,6 +2,7 @@ import { Composition, useCurrentFrame, useVideoConfig } from 'remotion';
 import { TegakiRenderer } from 'tegaki';
 import caveat from 'tegaki/fonts/caveat';
 import { PROMO_DURATION, PROMO_FPS, PROMO_HEIGHT, PROMO_WIDTH, Promo } from './Promo';
+import { SCRIPTS_PROMO_DURATION, SCRIPTS_PROMO_FPS, SCRIPTS_PROMO_HEIGHT, SCRIPTS_PROMO_WIDTH, ScriptsPromo } from './ScriptsPromo';
 
 const Handwriting = () => {
   const frame = useCurrentFrame();
@@ -30,6 +31,14 @@ export const RemotionRoot: React.FC = () => {
         fps={PROMO_FPS}
         width={PROMO_WIDTH}
         height={PROMO_HEIGHT}
+      />
+      <Composition
+        id="ScriptsPromo"
+        component={ScriptsPromo}
+        durationInFrames={SCRIPTS_PROMO_DURATION}
+        fps={SCRIPTS_PROMO_FPS}
+        width={SCRIPTS_PROMO_WIDTH}
+        height={SCRIPTS_PROMO_HEIGHT}
       />
     </>
   );

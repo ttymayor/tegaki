@@ -16,6 +16,8 @@
       "!**/build",
       "!**/out",
       "!**/fonts",
+      "!**/.agents",
+      "!**/.claude",
       "!**/*.md",
       "!**/*.astro",
       "!**/*.svelte",

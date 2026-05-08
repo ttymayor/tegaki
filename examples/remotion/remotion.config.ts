@@ -1,10 +1,11 @@
 import { Config } from '@remotion/cli/config';
 
-// Inline TTF fonts (including tegaki's bundled fonts) as data URLs so they
-// resolve correctly in both Remotion Studio and the renderer.
-// Without this, webpack emits asset URLs with relative paths like
-// `../../packages/renderer/dist/fonts/caveat/caveat.ttf` which escape the
-// studio's served root and fall through to the SPA catch-all.
+// Inline TTF and WASM assets as data URLs so they resolve correctly in both
+// Remotion Studio and the renderer. Without this, webpack emits asset URLs
+// with relative paths like `../../packages/renderer/dist/fonts/caveat/caveat.ttf`
+// or `harfbuzzjs/hb.wasm` which escape the studio's served root and fall
+// through to the SPA catch-all (returning index.html — wasm then errors with
+// "expected magic word 00 61 73 6d, found 3c 21 44 4f").
 Config.overrideWebpackConfig((config) => {
   return {
     ...config,
@@ -26,10 +27,15 @@ Config.overrideWebpackConfig((config) => {
         ...(config.module?.rules ?? []).filter((rule) => {
           if (typeof rule !== 'object' || !rule || !rule.test) return true;
           const test = rule.test;
-          return !(test instanceof RegExp && test.test('a.ttf'));
+          if (!(test instanceof RegExp)) return true;
+          return !test.test('a.ttf') && !test.test('a.wasm');
         }),
         {
           test: /\.ttf$/,
+          type: 'asset/inline',
+        },
+        {
+          test: /\.wasm$/,
           type: 'asset/inline',
         },
       ],

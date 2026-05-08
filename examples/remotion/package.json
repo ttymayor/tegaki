@@ -13,6 +13,7 @@
   "dependencies": {
     "@remotion/cli": "4.0.448",
     "@remotion/fonts": "4.0.448",
+    "harfbuzzjs": "^0.10.3",
     "react": "^19",
     "react-dom": "^19",
     "remotion": "4.0.448",

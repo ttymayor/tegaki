@@ -83,13 +83,18 @@ const clientOptions = {
   ...engineOptions,
   font: resolvedFont?.family,
 };
+
+// When font is passed as an object directly (not a string lookup), auto-serialize
+// the bundle so the client can hydrate without requiring an explicit `bundle` prop.
+// The `bundle` prop is still useful for the register-only pattern (no text rendered).
+const shouldInlineBundle = !registerBundle && typeof font !== 'string' && !!resolvedFont;
 ---
 
 {loadFont && resolvedFont?.fontFaceCSS && (
   <style is:inline set:html={resolvedFont.fontFaceCSS} />
 )}
 
-{registerBundle && resolvedFont && (
+{(registerBundle || shouldInlineBundle) && resolvedFont && (
   <script is:inline type="application/json" data-tegaki-bundle set:html={JSON.stringify(resolvedFont)} />
 )}
 
